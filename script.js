@@ -156,7 +156,17 @@ function drawPlayer(player) {
   ctx.restore();
 }
 
-// 첫 화면을 한 번 그립니다. 움직임이나 조작 기능은 없습니다.
+// 화면 왼쪽 위에 첫 점수가 0점인 점수칸을 그립니다.
+function drawScore() {
+  ctx.fillStyle = "rgb(22 40 56 / 78%)";
+  ctx.fillRect(18, 18, 150, 48);
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "bold 20px sans-serif";
+  ctx.fillText("점수: 0", 32, 49);
+}
+
+// 첫 화면을 한 번 그립니다. 움직임이나 점수 변화 기능은 없습니다.
 drawBackground();
 scene.rocks.forEach(drawRock);
 drawPlayer(scene.player);
+drawScore();
