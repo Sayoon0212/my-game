@@ -1,12 +1,40 @@
+* {
+  box-sizing: border-box;
+}
+
 body {
+  min-width: 320px;
   min-height: 100vh;
   margin: 0;
   display: grid;
   place-items: center;
-  background: #333;
+  padding: 24px;
+  background: #252b35;
+  font-family: "Malgun Gothic", sans-serif;
+}
+
+.game {
+  width: min(100%, 800px);
 }
 
 canvas {
   display: block;
+  width: 100%;
+  height: auto;
   border: 1px solid #fff;
+}
+
+.deployment-note {
+  position: fixed;
+  right: 16px;
+  bottom: 10px;
+  margin: 0;
+  color: #aeb8c5;
+  font-size: 0.75rem;
+}
+
+@media (max-width: 520px) {
+  body {
+    padding: 16px;
+  }
 }
