@@ -1,17 +1,25 @@
 const canvas = document.getElementById("game"); // HTML에서 게임 화면 캔버스를 가져옵니다.
 const ctx = canvas.getContext("2d"); // 캔버스에 2D 그림을 그리는 도구를 가져옵니다.
 
+// 방향키와 스페이스바의 현재 눌림 상태, 플레이어의 조작 속도입니다.
+const keys = {
+  ArrowUp: false,
+  ArrowDown: false,
+  ArrowLeft: false,
+  ArrowRight: false,
+  Space: false,
+};
+const playerMoveSpeed = 4;
+const rockSpawnMinDelay = 700;
+const rockSpawnMaxDelay = 2600;
+
 // 캔버스 크기와 돌, 스키 타는 사람의 위치·크기·속도를 모아 둡니다.
 const scene = {
   width: 800,
   height: 600,
   rocks: [],
-  nextRockAtY: 530,
-  rockSpawnMinDistance: 120,
-  rockSpawnMaxDistance: 180,
   rockSpawnMinX: 30,
   rockSpawnMaxX: 450,
-  rockStartSpeed: 2,
   rockAcceleration: 0.2,
   slopeStartY: 130,
   slopeEndX: 490,
@@ -50,8 +58,10 @@ const scene = {
   snowParticleInterval: 45,
   snowParticleLifetime: 650,
   lastFrameTimestamp: null,
-  player: { x: 384, y: 470, width: 32, height: 32, speedX: 1.5, speedY: 1.4 },
-  camera: { x: 0, y: 0, followX: 384, followY: 470 },
+  gameOver: false,
+  nextRockInMs:
+    rockSpawnMinDelay + Math.random() * (rockSpawnMaxDelay - rockSpawnMinDelay),
+  player: { x: 384, y: 470, width: 32, height: 32 },
   snowTrails: [
     { x: 100, y: 550, length: 28 },
     { x: 235, y: 420, length: 20 },
@@ -226,6 +236,23 @@ function drawScore() {
   ctx.fillText("점수: 0", 32, 49);
 }
 
+// 바위에 부딪히면 게임 화면에 패배 안내를 보여 줍니다.
+function drawGameOver() {
+  if (!scene.gameOver) {
+    return;
+  }
+
+  ctx.fillStyle = "rgb(18 28 40 / 72%)";
+  ctx.fillRect(0, 0, scene.width, scene.height);
+  ctx.fillStyle = "#ffffff";
+  ctx.textAlign = "center";
+  ctx.font = "bold 42px sans-serif";
+  ctx.fillText("패배!", scene.width / 2, scene.height / 2);
+  ctx.font = "22px sans-serif";
+  ctx.fillText("바위에 부딪혔어요", scene.width / 2, scene.height / 2 + 42);
+  ctx.textAlign = "start";
+}
+
 // 비탈 위의 눈 자국을 거슬러 흘려 스키어가 계속 내려가는 느낌을 냅니다.
 function drawSnowTrails() {
   ctx.save();
@@ -253,8 +280,8 @@ function drawSnowParticles() {
   scene.snowParticles.forEach((particle) => {
     ctx.beginPath();
     ctx.arc(
-      particle.x - scene.camera.x,
-      particle.y - scene.camera.y,
+      particle.x,
+      particle.y,
       particle.radius,
       0,
       Math.PI * 2,
@@ -266,12 +293,42 @@ function drawSnowParticles() {
   });
 }
 
-// 스키어의 진행 거리에 맞춰 새 바위를 만들고, 떨어져 부딪힌 바위는 잠시 후 치웁니다.
+// 비탈 경계선에서 해당 높이의 눈길 시작 x 좌표를 구합니다.
+function getSlopeEdgeX(y) {
+  return ((y - scene.slopeStartY) / (scene.slopeEndY - scene.slopeStartY)) * scene.slopeEndX;
+}
+
+// 키보드 입력으로 스키어를 움직이고, 불규칙하게 나타나는 바위와 충돌을 처리합니다.
 function updateObjects(elapsedMs) {
-  scene.player.x += scene.player.speedX;
-  scene.player.y += scene.player.speedY;
-  scene.camera.x = Math.max(scene.camera.x, scene.player.x - scene.camera.followX);
-  scene.camera.y = Math.max(scene.camera.y, scene.player.y - scene.camera.followY);
+  if (scene.gameOver) {
+    return;
+  }
+
+  const frameScale = elapsedMs / (1000 / 60);
+  let moveX = Number(keys.ArrowRight) - Number(keys.ArrowLeft);
+  let moveY = Number(keys.ArrowDown) - Number(keys.ArrowUp);
+  if (moveX !== 0 && moveY !== 0) {
+    moveX *= Math.SQRT1_2;
+    moveY *= Math.SQRT1_2;
+  }
+
+  // 방향키 입력에 따라 다음 위치를 계산합니다.
+  let nextX = scene.player.x + moveX * playerMoveSpeed * frameScale;
+  let nextY = scene.player.y + moveY * playerMoveSpeed * frameScale;
+
+  // 플레이어의 몸 전체가 화면 안에 있도록 네 벽에서 막습니다.
+  nextX = Math.max(0, Math.min(nextX, scene.width - scene.player.width));
+  nextY = Math.max(0, Math.min(nextY, scene.height - scene.player.height));
+
+  // 비탈 경계에 닿으면 멈추게 해 아래쪽이나 왼쪽으로 뚫고 나가지 못하게 합니다.
+  const skiContactY = nextY + scene.player.height;
+  if (skiContactY >= scene.slopeStartY) {
+    const minX = getSlopeEdgeX(skiContactY) - scene.player.width / 2;
+    nextX = Math.max(nextX, minX);
+  }
+
+  scene.player.x = nextX;
+  scene.player.y = nextY;
 
   // 일정한 시간 간격으로 스키 뒤쪽에서 눈을 튀깁니다.
   scene.snowParticleTimer += elapsedMs;
@@ -289,7 +346,6 @@ function updateObjects(elapsedMs) {
     }
   }
 
-  const frameScale = elapsedMs / (1000 / 60);
   scene.snowParticles = scene.snowParticles.filter((particle) => {
     particle.x += particle.speedX * frameScale;
     particle.y += particle.speedY * frameScale;
@@ -297,26 +353,25 @@ function updateObjects(elapsedMs) {
     return particle.lifeMs > 0;
   });
 
-  if (scene.player.y >= scene.nextRockAtY) {
-    const radius = 20;
-    const x =
-      scene.rockSpawnMinX +
-      Math.random() * (scene.rockSpawnMaxX - scene.rockSpawnMinX);
+  // 일정하지 않은 시간 간격과 속도로 바위가 갑자기 떨어집니다.
+  scene.nextRockInMs -= elapsedMs;
+  if (scene.nextRockInMs <= 0) {
+    const radius = 16 + Math.random() * 12;
+    const x = scene.rockSpawnMinX + Math.random() * (scene.rockSpawnMaxX - scene.rockSpawnMinX);
     const slope = (scene.slopeEndY - scene.slopeStartY) / scene.slopeEndX;
     const slopeY = scene.slopeStartY + x * slope;
     scene.rocks.push({
       x,
-      y: -20,
+      y: -radius,
       radius,
-      speedY: scene.rockStartSpeed,
+      speedY: 2 + Math.random() * 5,
       state: "falling",
       slopeY,
       landingY: slopeY - radius * Math.sqrt(1 + slope * slope),
       impactFrames: 0,
     });
-    scene.nextRockAtY +=
-      scene.rockSpawnMinDistance +
-      Math.random() * (scene.rockSpawnMaxDistance - scene.rockSpawnMinDistance);
+    scene.nextRockInMs =
+      rockSpawnMinDelay + Math.random() * (rockSpawnMaxDelay - rockSpawnMinDelay);
   }
 
   // 눈 자국은 스키 진행 방향과 반대로 흘러가게 합니다.
@@ -329,7 +384,7 @@ function updateObjects(elapsedMs) {
     }
   });
 
-  // 바위는 비탈 경계선에 닿을 때까지 가속해 떨어지고, 부딪힌 자리에 충격을 남깁니다.
+  // 바위가 비탈에 떨어지는지, 스키어와 부딪혔는지 확인합니다.
   scene.rocks = scene.rocks.filter((rock) => {
     if (rock.state === "falling") {
       rock.y += rock.speedY;
@@ -345,6 +400,21 @@ function updateObjects(elapsedMs) {
       rock.impactFrames = Math.max(0, rock.impactFrames - 1);
       rock.landedFrames += 1;
     }
+
+    const playerScreenX = scene.player.x;
+    const playerScreenY = scene.player.y;
+    const nearestX = Math.max(
+      playerScreenX,
+      Math.min(rock.x, playerScreenX + scene.player.width),
+    );
+    const nearestY = Math.max(
+      playerScreenY,
+      Math.min(rock.y, playerScreenY + scene.player.height),
+    );
+    if (Math.hypot(rock.x - nearestX, rock.y - nearestY) < rock.radius) {
+      scene.gameOver = true;
+    }
+
     return rock.state === "falling" || rock.landedFrames < 50;
   });
 }
@@ -376,14 +446,37 @@ function gameLoop(timestamp) {
   drawSnowTrails();
   drawSnowParticles();
   scene.rocks.forEach(drawRock);
-  drawPlayer({
-    ...scene.player,
-    x: scene.player.x - scene.camera.x,
-    y: scene.player.y - scene.camera.y,
-  });
+  drawPlayer(scene.player);
   drawScore();
+  drawGameOver();
 
   requestAnimationFrame(gameLoop);
 }
+
+// 키를 누르고 있는 동안 입력 상태를 저장하고 페이지 스크롤을 막습니다.
+window.addEventListener("keydown", (event) => {
+  if (event.key in keys) {
+    keys[event.key] = true;
+  }
+  if (event.code === "Space") {
+    keys.Space = true;
+  }
+  if (event.key.startsWith("Arrow") || event.code === "Space") {
+    event.preventDefault();
+  }
+});
+
+// 키를 놓으면 해당 입력 상태를 해제합니다.
+window.addEventListener("keyup", (event) => {
+  if (event.key in keys) {
+    keys[event.key] = false;
+  }
+  if (event.code === "Space") {
+    keys.Space = false;
+  }
+  if (event.key.startsWith("Arrow") || event.code === "Space") {
+    event.preventDefault();
+  }
+});
 
 requestAnimationFrame(gameLoop);
