@@ -11,11 +11,45 @@ const scene = {
   rockSpawnMaxDistance: 180,
   rockSpawnMinX: 30,
   rockSpawnMaxX: 450,
-  rockStartSpeed: 1,
+  rockStartSpeed: 2,
   rockAcceleration: 0.2,
   slopeStartY: 130,
   slopeEndX: 490,
   slopeEndY: 600,
+  backgroundThemes: [
+    {
+      sky: ["#78c9f5", "#b9def0", "#f7c9d5"],
+      mountain: "#b8d7e8",
+      mountainSnow: "#f9fdff",
+      avalanche: "#ffffff",
+      slope: "#f8fcff",
+      slopeEdge: "#d6f0ff",
+    },
+    {
+      sky: ["#f5a66f", "#f5d0a8", "#f8e6d0"],
+      mountain: "#b6c4d2",
+      mountainSnow: "#fff8ec",
+      avalanche: "#fffdf8",
+      slope: "#fffaf2",
+      slopeEdge: "#f3d9c2",
+    },
+    {
+      sky: ["#263858", "#627d9f", "#b7c8d8"],
+      mountain: "#71879a",
+      mountainSnow: "#e5eef5",
+      avalanche: "#f3f8fc",
+      slope: "#edf5fb",
+      slopeEdge: "#c5d9e8",
+    },
+  ],
+  backgroundIndex: 0,
+  backgroundChangeInterval: 30000,
+  lastBackgroundChangeAt: 0,
+  snowParticles: [],
+  snowParticleTimer: 0,
+  snowParticleInterval: 45,
+  snowParticleLifetime: 650,
+  lastFrameTimestamp: null,
   player: { x: 384, y: 470, width: 32, height: 32, speedX: 1.5, speedY: 1.4 },
   camera: { x: 0, y: 0, followX: 384, followY: 470 },
   snowTrails: [
@@ -32,10 +66,11 @@ const scene = {
 
 // 하늘 그라데이션, 눈 덮인 비탈, 멀리 보이는 눈사태 산을 그립니다.
 function drawBackground() {
+  const theme = scene.backgroundThemes[scene.backgroundIndex];
   const skyGradient = ctx.createLinearGradient(0, 0, 0, scene.height);
-  skyGradient.addColorStop(0, "#78c9f5");
-  skyGradient.addColorStop(0.58, "#b9def0");
-  skyGradient.addColorStop(1, "#f7c9d5");
+  skyGradient.addColorStop(0, theme.sky[0]);
+  skyGradient.addColorStop(0.58, theme.sky[1]);
+  skyGradient.addColorStop(1, theme.sky[2]);
   ctx.fillStyle = skyGradient;
   ctx.fillRect(0, 0, scene.width, scene.height);
 
@@ -47,7 +82,7 @@ function drawBackground() {
   ctx.lineTo(800, 320);
   ctx.lineTo(430, 320);
   ctx.closePath();
-  ctx.fillStyle = "#b8d7e8";
+  ctx.fillStyle = theme.mountain;
   ctx.fill();
 
   // 산꼭대기와 비탈에 쌓인 눈을 그립니다.
@@ -61,7 +96,7 @@ function drawBackground() {
   ctx.lineTo(645, 213);
   ctx.lineTo(610, 225);
   ctx.closePath();
-  ctx.fillStyle = "#f9fdff";
+  ctx.fillStyle = theme.mountainSnow;
   ctx.fill();
 
   // 산비탈에서 흘러내리는 눈사태를 흰색 곡선으로 표현합니다.
@@ -73,7 +108,7 @@ function drawBackground() {
   ctx.bezierCurveTo(755, 315, 745, 285, 710, 277);
   ctx.bezierCurveTo(675, 268, 672, 230, 640, 220);
   ctx.closePath();
-  ctx.fillStyle = "#ffffff";
+  ctx.fillStyle = theme.avalanche;
   ctx.fill();
 
   // 눈사태 주변에 흩날리는 눈 덩어리를 그립니다.
@@ -96,14 +131,14 @@ function drawBackground() {
   ctx.lineTo(scene.width, scene.height);
   ctx.lineTo(0, scene.height);
   ctx.closePath();
-  ctx.fillStyle = "#f8fcff";
+  ctx.fillStyle = theme.slope;
   ctx.fill();
 
   // 비탈의 경계에 옅은 파란색 선을 그립니다.
   ctx.beginPath();
   ctx.moveTo(0, 130);
   ctx.lineTo(490, scene.height);
-  ctx.strokeStyle = "#d6f0ff";
+  ctx.strokeStyle = theme.slopeEdge;
   ctx.lineWidth = 8;
   ctx.stroke();
 }
@@ -213,12 +248,54 @@ function drawSnowTrails() {
   ctx.restore();
 }
 
+// 스키 뒤에서 튀어 오른 눈 입자를 그립니다.
+function drawSnowParticles() {
+  scene.snowParticles.forEach((particle) => {
+    ctx.beginPath();
+    ctx.arc(
+      particle.x - scene.camera.x,
+      particle.y - scene.camera.y,
+      particle.radius,
+      0,
+      Math.PI * 2,
+    );
+    ctx.fillStyle = `rgb(255 255 255 / ${Math.round(
+      (particle.lifeMs / scene.snowParticleLifetime) * 90,
+    )}%)`;
+    ctx.fill();
+  });
+}
+
 // 스키어의 진행 거리에 맞춰 새 바위를 만들고, 떨어져 부딪힌 바위는 잠시 후 치웁니다.
-function updateObjects() {
+function updateObjects(elapsedMs) {
   scene.player.x += scene.player.speedX;
   scene.player.y += scene.player.speedY;
   scene.camera.x = Math.max(scene.camera.x, scene.player.x - scene.camera.followX);
   scene.camera.y = Math.max(scene.camera.y, scene.player.y - scene.camera.followY);
+
+  // 일정한 시간 간격으로 스키 뒤쪽에서 눈을 튀깁니다.
+  scene.snowParticleTimer += elapsedMs;
+  while (scene.snowParticleTimer >= scene.snowParticleInterval) {
+    scene.snowParticleTimer -= scene.snowParticleInterval;
+    for (let i = 0; i < 2; i += 1) {
+      scene.snowParticles.push({
+        x: scene.player.x + 5,
+        y: scene.player.y + 27,
+        speedX: -0.5 - Math.random() * 1.5,
+        speedY: -0.5 - Math.random() * 1.5,
+        radius: 1.5 + Math.random() * 2,
+        lifeMs: scene.snowParticleLifetime,
+      });
+    }
+  }
+
+  const frameScale = elapsedMs / (1000 / 60);
+  scene.snowParticles = scene.snowParticles.filter((particle) => {
+    particle.x += particle.speedX * frameScale;
+    particle.y += particle.speedY * frameScale;
+    particle.lifeMs -= elapsedMs;
+    return particle.lifeMs > 0;
+  });
 
   if (scene.player.y >= scene.nextRockAtY) {
     const radius = 20;
@@ -272,14 +349,32 @@ function updateObjects() {
   });
 }
 
-// 게임 루프는 매 프레임 화면 지우기, 위치 계산, 다시 그리기 순서로 실행합니다.
-function gameLoop() {
+// 게임 루프는 매 프레임 화면 지우기, 계산, 그리기 순서로 실행합니다.
+function gameLoop(timestamp) {
   ctx.clearRect(0, 0, scene.width, scene.height);
 
-  updateObjects();
+  const elapsedMs =
+    scene.lastFrameTimestamp === null
+      ? 0
+      : Math.min(timestamp - scene.lastFrameTimestamp, 50);
+  scene.lastFrameTimestamp = timestamp;
+
+  // 실제 경과 시간이 30초가 될 때마다 다음 배경 테마로 바꿉니다.
+  const backgroundChanges = Math.floor(
+    (timestamp - scene.lastBackgroundChangeAt) / scene.backgroundChangeInterval,
+  );
+  if (backgroundChanges > 0) {
+    scene.backgroundIndex =
+      (scene.backgroundIndex + backgroundChanges) % scene.backgroundThemes.length;
+    scene.lastBackgroundChangeAt +=
+      backgroundChanges * scene.backgroundChangeInterval;
+  }
+
+  updateObjects(elapsedMs);
 
   drawBackground();
   drawSnowTrails();
+  drawSnowParticles();
   scene.rocks.forEach(drawRock);
   drawPlayer({
     ...scene.player,
@@ -291,4 +386,4 @@ function gameLoop() {
   requestAnimationFrame(gameLoop);
 }
 
-gameLoop();
+requestAnimationFrame(gameLoop);
