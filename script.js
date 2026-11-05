@@ -12,9 +12,35 @@ const keys = {
 const playerMoveSpeed = 4;
 const rockSpawnMinDelay = 700;
 const rockSpawnMaxDelay = 2600;
+const rockSpeedIncreasePerSecond = 0.02;
+const rockMaxSpeedMultiplier = 3;
+const screenShakeDuration = 220;
+const screenShakeIntensity = 7;
 // 적의 개수와 크기를 한곳에서 관리합니다.
 const enemyCount = 3;
 const enemySize = 24;
+const itemSize = 14;
+// 충돌 판정 영역을 화면에 표시할지 설정합니다.
+let showHitbox = true;
+let gameState = "playing";
+let gameStartTime = Date.now();
+let gameEndTime = null;
+let scoreBonus = 0;
+let screenShakeRemaining = 0;
+const initialPlayerPosition = { x: 384, y: 470 };
+const initialEnemyPositions = [
+  { x: 120, y: -enemySize, speed: 2 },
+  { x: 260, y: -180, speed: 3 },
+  { x: 400, y: -340, speed: 4 },
+];
+const initialSnowTrails = [
+  { x: 100, y: 550, length: 28 },
+  { x: 235, y: 420, length: 20 },
+  { x: 440, y: 570, length: 25 },
+  { x: 650, y: 500, length: 18 },
+  { x: 560, y: 350, length: 24 },
+  { x: 300, y: 590, length: 16 },
+];
 
 // 캔버스 크기와 돌, 스키 타는 사람의 위치·크기·속도를 모아 둡니다.
 const scene = {
@@ -61,28 +87,34 @@ const scene = {
   snowParticleInterval: 45,
   snowParticleLifetime: 650,
   lastFrameTimestamp: null,
-  gameOver: false,
   nextRockInMs:
     rockSpawnMinDelay + Math.random() * (rockSpawnMaxDelay - rockSpawnMinDelay),
   player: { x: 384, y: 470, width: 32, height: 32 },
-  snowTrails: [
-    { x: 100, y: 550, length: 28 },
-    { x: 235, y: 420, length: 20 },
-    { x: 440, y: 570, length: 25 },
-    { x: 650, y: 500, length: 18 },
-    { x: 560, y: 350, length: 24 },
-    { x: 300, y: 590, length: 16 },
-  ],
+  snowTrails: initialSnowTrails.map((trail) => ({ ...trail })),
   snowSpeedX: 1.5,
   snowSpeedY: 1.4,
 };
 
 // 서로 다른 위치와 속도로 시작하는 적 세 명입니다.
 const enemies = [
-  { x: 120, y: -enemySize, speed: 2, size: enemySize },
-  { x: 260, y: -180, speed: 3, size: enemySize },
-  { x: 400, y: -340, speed: 4, size: enemySize },
+  ...initialEnemyPositions.map((enemy) => ({ ...enemy, size: enemySize })),
 ];
+// 아이템은 한 번에 하나씩 화면 위쪽에 배치합니다.
+const items = [createItem()];
+
+// 절벽 쪽을 피해 비탈 위쪽의 무작위 위치에 아이템을 만듭니다.
+function createItem() {
+  const y =
+    scene.slopeStartY +
+    itemSize +
+    Math.random() * (scene.height * 0.4 - scene.slopeStartY - itemSize);
+  const minX = getSlopeEdgeX(y + itemSize) + itemSize;
+  return {
+    x: minX + Math.random() * (scene.width - itemSize - minX),
+    y,
+    size: itemSize,
+  };
+}
 
 // 하늘 그라데이션, 눈 덮인 비탈, 멀리 보이는 눈사태 산을 그립니다.
 function drawBackground() {
@@ -191,12 +223,127 @@ function drawRock(rock) {
   ctx.fill();
 }
 
-// 적 하나를 눈 위에 붉은 원 모양으로 그립니다.
+// 적 하나를 각진 붉은 바위 모양으로 그립니다.
 function drawEnemy(enemy) {
+  const rockPoints = [
+    [0.72, -0.5],
+    [0.3, -0.95],
+    [-0.28, -0.82],
+    [-0.86, -0.38],
+    [-0.78, 0.28],
+    [-0.35, 0.82],
+    [0.32, 0.9],
+    [0.84, 0.42],
+  ];
+
   ctx.beginPath();
-  ctx.arc(enemy.x, enemy.y, enemy.size, 0, Math.PI * 2);
-  ctx.fillStyle = "#d94343";
+  rockPoints.forEach(([scaleX, scaleY], index) => {
+    const x = enemy.x + scaleX * enemy.size;
+    const y = enemy.y + scaleY * enemy.size;
+    if (index === 0) {
+      ctx.moveTo(x, y);
+    } else {
+      ctx.lineTo(x, y);
+    }
+  });
+  ctx.closePath();
+  ctx.fillStyle = "#a83232";
   ctx.fill();
+  ctx.strokeStyle = "#702626";
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // 바위 표면에 밝고 어두운 면을 더해 입체감을 줍니다.
+  ctx.beginPath();
+  ctx.moveTo(enemy.x - enemy.size * 0.28, enemy.y - enemy.size * 0.78);
+  ctx.lineTo(enemy.x + enemy.size * 0.3, enemy.y - enemy.size * 0.48);
+  ctx.lineTo(enemy.x + enemy.size * 0.02, enemy.y + enemy.size * 0.02);
+  ctx.lineTo(enemy.x - enemy.size * 0.62, enemy.y - enemy.size * 0.25);
+  ctx.closePath();
+  ctx.fillStyle = "#d65b50";
+  ctx.fill();
+
+  ctx.beginPath();
+  ctx.moveTo(enemy.x + enemy.size * 0.02, enemy.y + enemy.size * 0.02);
+  ctx.lineTo(enemy.x + enemy.size * 0.3, enemy.y - enemy.size * 0.48);
+  ctx.lineTo(enemy.x + enemy.size * 0.72, enemy.y - enemy.size * 0.5);
+  ctx.lineTo(enemy.x + enemy.size * 0.84, enemy.y + enemy.size * 0.42);
+  ctx.lineTo(enemy.x + enemy.size * 0.32, enemy.y + enemy.size * 0.9);
+  ctx.closePath();
+  ctx.fillStyle = "#812929";
+  ctx.fill();
+}
+
+// 원형 오브젝트를 감싸는 사각형 충돌 영역을 구합니다.
+function getObjectHitbox(object) {
+  return {
+    x: object.x - object.size,
+    y: object.y - object.size,
+    width: object.size * 2,
+    height: object.size * 2,
+  };
+}
+
+// 플레이어와 오브젝트의 사각형 영역이 가로와 세로로 모두 겹치는지 확인합니다.
+function checkCollision(player, object) {
+  const objectHitbox = getObjectHitbox(object);
+  return (
+    player.x < objectHitbox.x + objectHitbox.width &&
+    player.x + player.width > objectHitbox.x &&
+    player.y < objectHitbox.y + objectHitbox.height &&
+    player.y + player.height > objectHitbox.y
+  );
+}
+
+// 충돌 판정에 사용하는 플레이어와 오브젝트의 영역을 빨간 테두리로 표시합니다.
+function drawHitboxes(player, object) {
+  const objectHitbox = getObjectHitbox(object);
+  ctx.strokeStyle = "red";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(player.x, player.y, player.width, player.height);
+  ctx.strokeRect(
+    objectHitbox.x,
+    objectHitbox.y,
+    objectHitbox.width,
+    objectHitbox.height,
+  );
+}
+
+// 획득할 수 있는 아이템을 빛나는 별 모양으로 그립니다.
+function drawItem(item) {
+  const rayCount = 8;
+  const innerRadius = item.size * 0.3;
+  const gradient = ctx.createRadialGradient(
+    item.x,
+    item.y,
+    0,
+    item.x,
+    item.y,
+    item.size,
+  );
+  gradient.addColorStop(0, "#ffffff");
+  gradient.addColorStop(0.35, "#fff7a8");
+  gradient.addColorStop(1, "#ffb300");
+
+  ctx.save();
+  ctx.shadowColor = "#ffe45c";
+  ctx.shadowBlur = 18;
+  ctx.beginPath();
+  for (let i = 0; i < rayCount * 2; i += 1) {
+    const angle = (i * Math.PI) / rayCount - Math.PI / 2;
+    const radius = i % 2 === 0 ? item.size : innerRadius;
+    const x = item.x + Math.cos(angle) * radius;
+    const y = item.y + Math.sin(angle) * radius;
+    if (i === 0) {
+      ctx.moveTo(x, y);
+    } else {
+      ctx.lineTo(x, y);
+    }
+  }
+  ctx.closePath();
+  ctx.fillStyle = gradient;
+  ctx.fill();
+  ctx.restore();
 }
 
 // 스키와 몸, 팔, 머리, 다리로 32×32 크기의 사람을 그립니다.
@@ -245,18 +392,59 @@ function drawPlayer(player) {
   ctx.restore();
 }
 
-// 화면 왼쪽 위에 첫 점수가 0점인 점수칸을 그립니다.
+// 새 게임을 시작할 때 점수와 플레이어, 적, 아이템의 상태를 초기화합니다.
+function resetGame() {
+  gameState = "playing";
+  gameStartTime = Date.now();
+  gameEndTime = null;
+  scoreBonus = 0;
+  screenShakeRemaining = 0;
+  scene.player.x = initialPlayerPosition.x;
+  scene.player.y = initialPlayerPosition.y;
+  scene.rocks.length = 0;
+  scene.snowParticles.length = 0;
+  scene.snowParticleTimer = 0;
+  scene.snowTrails = initialSnowTrails.map((trail) => ({ ...trail }));
+  scene.nextRockInMs =
+    rockSpawnMinDelay + Math.random() * (rockSpawnMaxDelay - rockSpawnMinDelay);
+  scene.backgroundIndex = 0;
+  scene.lastBackgroundChangeAt = scene.lastFrameTimestamp ?? 0;
+  scene.lastFrameTimestamp = null;
+  for (let i = 0; i < enemies.length; i += 1) {
+    enemies[i].x = initialEnemyPositions[i].x;
+    enemies[i].y = initialEnemyPositions[i].y;
+    enemies[i].speed = initialEnemyPositions[i].speed;
+  }
+  items.length = 0;
+  items.push(createItem());
+  for (const key of Object.keys(keys)) {
+    keys[key] = false;
+  }
+}
+
+// 충돌 순간 짧은 화면 흔들림을 시작합니다.
+function triggerScreenShake() {
+  screenShakeRemaining = screenShakeDuration;
+}
+
+// 생존 시간과 아이템 보너스를 합산해 현재 점수를 계산합니다.
+function getScore() {
+  const endTime = gameEndTime ?? Date.now();
+  return Math.floor((endTime - gameStartTime) / 1000) + scoreBonus;
+}
+
+// 왼쪽 위에 버틴 시간을 초 단위 점수로 표시합니다.
 function drawScore() {
   ctx.fillStyle = "rgb(22 40 56 / 78%)";
   ctx.fillRect(18, 18, 150, 48);
   ctx.fillStyle = "#ffffff";
   ctx.font = "bold 20px sans-serif";
-  ctx.fillText("점수: 0", 32, 49);
+  ctx.fillText(`점수: ${getScore()}`, 32, 49);
 }
 
-// 바위에 부딪히면 게임 화면에 패배 안내를 보여 줍니다.
+// 게임 오버 상태와 최종 점수, 재시작 안내를 화면 가운데에 표시합니다.
 function drawGameOver() {
-  if (!scene.gameOver) {
+  if (gameState !== "gameover") {
     return;
   }
 
@@ -264,10 +452,12 @@ function drawGameOver() {
   ctx.fillRect(0, 0, scene.width, scene.height);
   ctx.fillStyle = "#ffffff";
   ctx.textAlign = "center";
-  ctx.font = "bold 42px sans-serif";
-  ctx.fillText("패배!", scene.width / 2, scene.height / 2);
-  ctx.font = "22px sans-serif";
-  ctx.fillText("바위에 부딪혔어요", scene.width / 2, scene.height / 2 + 42);
+  ctx.font = "bold 48px sans-serif";
+  ctx.fillText("GAME OVER", scene.width / 2, scene.height / 2 - 35);
+  ctx.font = "24px sans-serif";
+  ctx.fillText(`최종 점수: ${getScore()}`, scene.width / 2, scene.height / 2 + 10);
+  ctx.font = "18px sans-serif";
+  ctx.fillText("R 키를 눌러 다시 시작", scene.width / 2, scene.height / 2 + 50);
   ctx.textAlign = "start";
 }
 
@@ -318,11 +508,17 @@ function getSlopeEdgeX(y) {
 
 // 키보드 입력으로 스키어를 움직이고, 불규칙하게 나타나는 바위와 충돌을 처리합니다.
 function updateObjects(elapsedMs) {
-  if (scene.gameOver) {
+  if (gameState !== "playing") {
     return;
   }
 
   const frameScale = elapsedMs / (1000 / 60);
+  // 생존 시간이 길수록 바위 낙하 속도를 높이되 최대 3배로 제한합니다.
+  const survivalSeconds = (Date.now() - gameStartTime) / 1000;
+  const rockSpeedMultiplier = Math.min(
+    1 + survivalSeconds * rockSpeedIncreasePerSecond,
+    rockMaxSpeedMultiplier,
+  );
 
   // 적을 아래로 이동시키고 화면을 벗어나면 위쪽의 무작위 위치로 보냅니다.
   for (let i = 0; i < enemyCount; i += 1) {
@@ -358,6 +554,25 @@ function updateObjects(elapsedMs) {
 
   scene.player.x = nextX;
   scene.player.y = nextY;
+
+  // 플레이어가 적에 닿으면 게임을 종료하고 최종 점수 시각을 기록합니다.
+  for (const enemy of enemies) {
+    if (checkCollision(scene.player, enemy)) {
+      gameState = "gameover";
+      gameEndTime = Date.now();
+      triggerScreenShake();
+      return;
+    }
+  }
+
+  // 플레이어가 아이템에 닿으면 10점을 받고, 새 아이템을 위쪽에 배치합니다.
+  for (let i = items.length - 1; i >= 0; i -= 1) {
+    if (checkCollision(scene.player, items[i])) {
+      items.splice(i, 1);
+      scoreBonus += 10;
+      items.push(createItem());
+    }
+  }
 
   // 일정한 시간 간격으로 스키 뒤쪽에서 눈을 튀깁니다.
   scene.snowParticleTimer += elapsedMs;
@@ -416,8 +631,8 @@ function updateObjects(elapsedMs) {
   // 바위가 비탈에 떨어지는지, 스키어와 부딪혔는지 확인합니다.
   scene.rocks = scene.rocks.filter((rock) => {
     if (rock.state === "falling") {
-      rock.y += rock.speedY;
-      rock.speedY += scene.rockAcceleration;
+      rock.y += rock.speedY * rockSpeedMultiplier * frameScale;
+      rock.speedY += scene.rockAcceleration * rockSpeedMultiplier * frameScale;
       if (rock.y >= rock.landingY) {
         rock.y = rock.landingY;
         rock.speedY = 0;
@@ -440,8 +655,13 @@ function updateObjects(elapsedMs) {
       playerScreenY,
       Math.min(rock.y, playerScreenY + scene.player.height),
     );
-    if (Math.hypot(rock.x - nearestX, rock.y - nearestY) < rock.radius) {
-      scene.gameOver = true;
+    if (
+      gameState === "playing" &&
+      Math.hypot(rock.x - nearestX, rock.y - nearestY) < rock.radius
+    ) {
+      gameState = "gameover";
+      gameEndTime = Date.now();
+      triggerScreenShake();
     }
 
     return rock.state === "falling" || rock.landedFrames < 50;
@@ -452,26 +672,39 @@ function updateObjects(elapsedMs) {
 function gameLoop(timestamp) {
   ctx.clearRect(0, 0, scene.width, scene.height);
 
-  const elapsedMs =
+  const frameElapsedMs =
     scene.lastFrameTimestamp === null
       ? 0
       : Math.min(timestamp - scene.lastFrameTimestamp, 50);
   scene.lastFrameTimestamp = timestamp;
+  const elapsedMs = gameState === "playing" ? frameElapsedMs : 0;
+  screenShakeRemaining = Math.max(0, screenShakeRemaining - frameElapsedMs);
 
-  // 실제 경과 시간이 30초가 될 때마다 다음 배경 테마로 바꿉니다.
-  const backgroundChanges = Math.floor(
-    (timestamp - scene.lastBackgroundChangeAt) / scene.backgroundChangeInterval,
-  );
-  if (backgroundChanges > 0) {
-    scene.backgroundIndex =
-      (scene.backgroundIndex + backgroundChanges) % scene.backgroundThemes.length;
-    scene.lastBackgroundChangeAt +=
-      backgroundChanges * scene.backgroundChangeInterval;
+  if (gameState === "playing") {
+    // 실제 경과 시간이 30초가 될 때마다 다음 배경 테마로 바꿉니다.
+    const backgroundChanges = Math.floor(
+      (timestamp - scene.lastBackgroundChangeAt) / scene.backgroundChangeInterval,
+    );
+    if (backgroundChanges > 0) {
+      scene.backgroundIndex =
+        (scene.backgroundIndex + backgroundChanges) % scene.backgroundThemes.length;
+      scene.lastBackgroundChangeAt +=
+        backgroundChanges * scene.backgroundChangeInterval;
+    }
   }
 
   updateObjects(elapsedMs);
 
   drawBackground();
+  ctx.save();
+  if (screenShakeRemaining > 0) {
+    const intensity =
+      screenShakeIntensity * (screenShakeRemaining / screenShakeDuration);
+    ctx.translate(
+      (Math.random() * 2 - 1) * intensity,
+      (Math.random() * 2 - 1) * intensity,
+    );
+  }
   drawSnowTrails();
   drawSnowParticles();
   scene.rocks.forEach(drawRock);
@@ -479,15 +712,32 @@ function gameLoop(timestamp) {
   for (let i = 0; i < enemies.length; i += 1) {
     drawEnemy(enemies[i]);
   }
+  for (const item of items) {
+    drawItem(item);
+  }
   drawPlayer(scene.player);
+  if (showHitbox) {
+    for (const enemy of enemies) {
+      drawHitboxes(scene.player, enemy);
+    }
+    for (const item of items) {
+      drawHitboxes(scene.player, item);
+    }
+  }
   drawScore();
   drawGameOver();
+  ctx.restore();
 
   requestAnimationFrame(gameLoop);
 }
 
 // 키를 누르고 있는 동안 입력 상태를 저장하고 페이지 스크롤을 막습니다.
+resetGame();
 window.addEventListener("keydown", (event) => {
+  if (event.key.toLowerCase() === "r" && gameState === "gameover") {
+    resetGame();
+    return;
+  }
   if (event.key in keys) {
     keys[event.key] = true;
   }
