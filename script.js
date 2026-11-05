@@ -12,6 +12,9 @@ const keys = {
 const playerMoveSpeed = 4;
 const rockSpawnMinDelay = 700;
 const rockSpawnMaxDelay = 2600;
+// 적의 개수와 크기를 한곳에서 관리합니다.
+const enemyCount = 3;
+const enemySize = 24;
 
 // 캔버스 크기와 돌, 스키 타는 사람의 위치·크기·속도를 모아 둡니다.
 const scene = {
@@ -73,6 +76,13 @@ const scene = {
   snowSpeedX: 1.5,
   snowSpeedY: 1.4,
 };
+
+// 서로 다른 위치와 속도로 시작하는 적 세 명입니다.
+const enemies = [
+  { x: 120, y: -enemySize, speed: 2, size: enemySize },
+  { x: 260, y: -180, speed: 3, size: enemySize },
+  { x: 400, y: -340, speed: 4, size: enemySize },
+];
 
 // 하늘 그라데이션, 눈 덮인 비탈, 멀리 보이는 눈사태 산을 그립니다.
 function drawBackground() {
@@ -178,6 +188,14 @@ function drawRock(rock) {
     Math.PI * 2,
   );
   ctx.fillStyle = "#aeb7c0";
+  ctx.fill();
+}
+
+// 적 하나를 눈 위에 붉은 원 모양으로 그립니다.
+function drawEnemy(enemy) {
+  ctx.beginPath();
+  ctx.arc(enemy.x, enemy.y, enemy.size, 0, Math.PI * 2);
+  ctx.fillStyle = "#d94343";
   ctx.fill();
 }
 
@@ -305,6 +323,17 @@ function updateObjects(elapsedMs) {
   }
 
   const frameScale = elapsedMs / (1000 / 60);
+
+  // 적을 아래로 이동시키고 화면을 벗어나면 위쪽의 무작위 위치로 보냅니다.
+  for (let i = 0; i < enemyCount; i += 1) {
+    const enemy = enemies[i];
+    enemy.y += enemy.speed * frameScale;
+    if (enemy.y - enemy.size > scene.height) {
+      enemy.x = enemy.size + Math.random() * (scene.width - enemy.size * 2);
+      enemy.y = -enemy.size;
+    }
+  }
+
   let moveX = Number(keys.ArrowRight) - Number(keys.ArrowLeft);
   let moveY = Number(keys.ArrowDown) - Number(keys.ArrowUp);
   if (moveX !== 0 && moveY !== 0) {
@@ -446,6 +475,10 @@ function gameLoop(timestamp) {
   drawSnowTrails();
   drawSnowParticles();
   scene.rocks.forEach(drawRock);
+  // 배열에 있는 모든 적을 그립니다.
+  for (let i = 0; i < enemies.length; i += 1) {
+    drawEnemy(enemies[i]);
+  }
   drawPlayer(scene.player);
   drawScore();
   drawGameOver();
