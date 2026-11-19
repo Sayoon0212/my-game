@@ -1,7 +1,10 @@
+// ===== ① 준비 (canvas, ctx) =====
 const canvas = document.getElementById("game"); // HTML에서 게임 화면 캔버스를 가져옵니다.
 const ctx = canvas.getContext("2d"); // 캔버스에 2D 그림을 그리는 도구를 가져옵니다.
 
 // 방향키와 스페이스바의 현재 눌림 상태, 플레이어의 조작 속도입니다.
+
+// ===== ② 상태 변수 =====
 const keys = {
   ArrowUp: false,
   ArrowDown: false,
@@ -21,7 +24,8 @@ const enemyCount = 3;
 const enemySize = 24;
 const itemSize = 14;
 // 충돌 판정 영역을 화면에 표시할지 설정합니다.
-let showHitbox = true;
+let showDebug = false;
+let showHitbox = false;
 let gameState = "playing";
 let gameStartTime = Date.now();
 let gameEndTime = null;
@@ -102,6 +106,45 @@ const enemies = [
 // 아이템은 한 번에 하나씩 화면 위쪽에 배치합니다.
 const items = [createItem()];
 
+// ===== ③ 이벤트 =====
+// 키를 누르고 있는 동안 입력 상태를 저장하고 페이지 스크롤을 막습니다.
+window.addEventListener("keydown", (event) => {
+  if (event.key.toLowerCase() === "d") {
+    if (!event.repeat) {
+      showDebug = !showDebug;
+      showHitbox = showDebug;
+    }
+    return;
+  }
+  if (event.key.toLowerCase() === "r" && gameState === "gameover") {
+    resetGame();
+    return;
+  }
+  if (event.key in keys) {
+    keys[event.key] = true;
+  }
+  if (event.code === "Space") {
+    keys.Space = true;
+  }
+  if (event.key.startsWith("Arrow") || event.code === "Space") {
+    event.preventDefault();
+  }
+});
+
+// 키를 놓으면 해당 입력 상태를 해제합니다.
+window.addEventListener("keyup", (event) => {
+  if (event.key in keys) {
+    keys[event.key] = false;
+  }
+  if (event.code === "Space") {
+    keys.Space = false;
+  }
+  if (event.key.startsWith("Arrow") || event.code === "Space") {
+    event.preventDefault();
+  }
+});
+
+// ===== ④ 함수들 =====
 // 절벽 쪽을 피해 비탈 위쪽의 무작위 위치에 아이템을 만듭니다.
 function createItem() {
   const y =
@@ -442,6 +485,30 @@ function drawScore() {
   ctx.fillText(`점수: ${getScore()}`, 32, 49);
 }
 
+function drawDebug() {
+  if (!showDebug) {
+    return;
+  }
+
+  ctx.fillStyle = "rgb(22 40 56 / 78%)";
+  ctx.fillRect(18, 76, 230, 72);
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "12px sans-serif";
+  ctx.textAlign = "left";
+  ctx.fillText(
+    `플레이어: x ${Math.round(scene.player.x)}, y ${Math.round(scene.player.y)}`,
+    26,
+    94,
+  );
+  ctx.fillText(
+    `적: ${enemies.length}  돌: ${scene.rocks.length}  아이템: ${items.length}`,
+    26,
+    110,
+  );
+  ctx.fillText(`상태: ${gameState}`, 26, 126);
+  ctx.fillText(`점수: ${getScore()}`, 26, 142);
+}
+
 // 게임 오버 상태와 최종 점수, 재시작 안내를 화면 가운데에 표시합니다.
 function drawGameOver() {
   if (gameState !== "gameover") {
@@ -668,6 +735,7 @@ function updateObjects(elapsedMs) {
   });
 }
 
+// ===== ⑤ 게임 루프 =====
 // 게임 루프는 매 프레임 화면 지우기, 계산, 그리기 순서로 실행합니다.
 function gameLoop(timestamp) {
   ctx.clearRect(0, 0, scene.width, scene.height);
@@ -726,40 +794,13 @@ function gameLoop(timestamp) {
   }
   drawScore();
   drawGameOver();
+  drawDebug();
   ctx.restore();
 
   requestAnimationFrame(gameLoop);
 }
 
-// 키를 누르고 있는 동안 입력 상태를 저장하고 페이지 스크롤을 막습니다.
+// ===== ⑥ 시동 =====
 resetGame();
-window.addEventListener("keydown", (event) => {
-  if (event.key.toLowerCase() === "r" && gameState === "gameover") {
-    resetGame();
-    return;
-  }
-  if (event.key in keys) {
-    keys[event.key] = true;
-  }
-  if (event.code === "Space") {
-    keys.Space = true;
-  }
-  if (event.key.startsWith("Arrow") || event.code === "Space") {
-    event.preventDefault();
-  }
-});
-
-// 키를 놓으면 해당 입력 상태를 해제합니다.
-window.addEventListener("keyup", (event) => {
-  if (event.key in keys) {
-    keys[event.key] = false;
-  }
-  if (event.code === "Space") {
-    keys.Space = false;
-  }
-  if (event.key.startsWith("Arrow") || event.code === "Space") {
-    event.preventDefault();
-  }
-});
 
 requestAnimationFrame(gameLoop);
