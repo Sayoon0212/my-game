@@ -636,7 +636,7 @@ function updateObjects(elapsedMs) {
       if (rock.y >= rock.landingY) {
         rock.y = rock.landingY;
         rock.speedY = 0;
-        rock.state = "landed";
+        rock.state = "landed";    
         rock.impactFrames = 18;
         rock.landedFrames = 0;
       }
